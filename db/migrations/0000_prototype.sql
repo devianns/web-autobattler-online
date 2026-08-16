@@ -97,6 +97,27 @@ CREATE TABLE IF NOT EXISTS online_game_pairings (
   PRIMARY KEY (game_id, round, pairing_index)
 );
 
+CREATE TABLE IF NOT EXISTS shared_unit_pools (
+  game_id uuid NOT NULL REFERENCES online_games(id) ON DELETE CASCADE,
+  unit_base_id text NOT NULL,
+  initial_count integer NOT NULL CHECK (initial_count >= 0),
+  available_count integer NOT NULL CHECK (available_count >= 0),
+  version integer NOT NULL DEFAULT 1,
+  PRIMARY KEY (game_id, unit_base_id),
+  CHECK (available_count <= initial_count)
+);
+
+CREATE TABLE IF NOT EXISTS online_shop_reservations (
+  game_id uuid NOT NULL REFERENCES online_games(id) ON DELETE CASCADE,
+  session_id uuid NOT NULL REFERENCES anonymous_sessions(id),
+  round integer NOT NULL,
+  slot integer NOT NULL CHECK (slot BETWEEN 0 AND 4),
+  unit_base_id text NOT NULL,
+  purchased boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (game_id, session_id, round, slot)
+);
+
 CREATE TABLE IF NOT EXISTS online_combat_jobs (
   game_id uuid NOT NULL REFERENCES online_games(id) ON DELETE CASCADE,
   round integer NOT NULL,

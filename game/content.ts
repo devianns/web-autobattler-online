@@ -11,6 +11,8 @@ Object.assign(UNIT_DEFINITIONS, {
 } satisfies Record<UnitBaseId, UnitDefinition>);
 
 export const UNIT_IDS = Object.keys(UNIT_DEFINITIONS) as UnitBaseId[];
+/** Prototype balance data. Changing these values does not require schema edits. */
+export const UNIT_POOL_COUNTS = Object.fromEntries(UNIT_IDS.map((baseId) => [baseId, UNIT_DEFINITIONS[baseId].cost === 1 ? 29 : 22])) as Record<UnitBaseId, number>;
 
 export function createCombatUnit(args: { uid: string; baseId: UnitBaseId; team: Team; position: GridPosition; starLevel?: 1 | 2 | 3 }): CombatUnit {
   const definition = UNIT_DEFINITIONS[args.baseId];
