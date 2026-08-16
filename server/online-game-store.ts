@@ -1,11 +1,12 @@
 import "server-only";
 import { createGame } from "@/game/state";
 import type { PrototypeGameState } from "@/game/types";
+import { projectCombatForPlayer, type RoundCombatLedger } from "@/game/multiplayer";
 import { ensureLobbySchema } from "./lobby-store";
 import { sql } from "./database";
 
 let onlineSchemaReady: Promise<void> | null = null;
-async function ensureOnlineSchema() {
+export async function ensureOnlineSchema() {
   await ensureLobbySchema();
   onlineSchemaReady ??= (async () => {
     await sql`ALTER TABLE online_game_players ADD COLUMN IF NOT EXISTS state jsonb`;
@@ -32,6 +33,20 @@ export async function loadOnlineGame(gameId: string, sessionId: string) {
   if (initialized[0]) return initialized[0].state as PrototypeGameState;
   const latest = await sql`SELECT state FROM online_game_players WHERE game_id=${gameId}::uuid AND session_id=${sessionId}::uuid`;
   return latest[0]?.state as PrototypeGameState | null;
+}
+
+export async function loadOnlineGameView(gameId:string,sessionId:string){
+  const state=await loadOnlineGame(gameId,sessionId); if(!state)return null;
+  const games=await sql`SELECT phase,round,phase_version,phase_ends_at FROM online_games WHERE id=${gameId}::uuid`;
+  if(!games[0])return null; const game=games[0];
+  let combat=null;
+  if(game.phase==="COMBAT"||game.phase==="RESULT"){
+    const rows=await sql`SELECT result FROM online_game_pairings WHERE game_id=${gameId}::uuid AND round=${game.round} AND (player_a_id=${sessionId}::uuid OR (NOT is_ghost AND player_b_id=${sessionId}::uuid)) ORDER BY is_ghost ASC,pairing_index LIMIT 1`;
+    if(rows[0]?.result)combat=projectCombatForPlayer(rows[0].result as RoundCombatLedger,sessionId);
+  }
+  const visiblePhase=state.hp<=0&&game.phase!=="GAME_OVER"?"RESULT":game.phase;
+  const projected={...state,round:game.round,phase:visiblePhase,combat,combatHistory:state.combatHistory??[]} as PrototypeGameState;
+  return {state:projected,game:{phase:game.phase as PrototypeGameState["phase"],round:game.round,phaseVersion:game.phase_version,phaseEndsAt:game.phase_ends_at as string}};
 }
 
 export async function loadOnlineAction(gameId: string, sessionId: string, actionId: string) {

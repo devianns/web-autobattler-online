@@ -50,7 +50,7 @@ function enemyBoard(state: PrototypeGameState) {
   }));
 }
 
-function playerDamage(round: number, survivors: number) { return (round <= 2 ? 2 : round <= 4 ? 3 : round <= 6 ? 4 : 5) + survivors }
+export function playerDamage(round: number, survivors: number) { return (round <= 2 ? 2 : round <= 4 ? 3 : round <= 6 ? 4 : 5) + survivors }
 
 export function applyCommand(current: PrototypeGameState, command: GameCommand): CommandResult {
   if (command.type === "RESET") return { state: createGame(), error: null };

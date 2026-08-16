@@ -80,12 +80,15 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
     return () => { cancelled = true; };
   }, [endpoint, gameKey]);
 
+  useEffect(()=>{if(!gameKey)return;const timer=window.setInterval(()=>{if(document.visibilityState!=="visible")return;void fetch(endpoint,{cache:"no-store"}).then(async(response)=>{if(!response.ok)throw new Error("poll failed");const body=await response.json() as {state:PrototypeGameState};setGame({...body.state,combatHistory:body.state.combatHistory??[]});setConnection("ONLINE")}).catch(()=>setConnection("OFFLINE"))},1500);return()=>window.clearInterval(timer)},[endpoint,gameKey]);
+
   useEffect(() => {
     if (game.phase !== "COMBAT" || !game.combat) return;
     const timer = window.setInterval(() => setElapsed((current) => {
       const next = current + 50 * speed;
       if (next >= game.combat!.durationMs + 450) {
         window.clearInterval(timer);
+        if(gameKey)return game.combat!.durationMs+450;
         const command = { type: "FINISH_COMBAT" } as const;
         const result = applyCommand(game, command);
         setGame(result.state);
@@ -94,7 +97,7 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
       return next;
     }), 50);
     return () => window.clearInterval(timer);
-  }, [game, speed, connection, endpoint]);
+  }, [game, speed, connection, endpoint, gameKey]);
 
   const playback = useMemo(() => game.combat ? playbackUnits(game.combat, elapsed) : null, [game.combat, elapsed]);
   const boardOwned = game.units.filter((unit) => unit.location === "BOARD");
@@ -126,7 +129,7 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
     <section className="management">
       <div className="bench-row"><span className="section-label">BENCH</span>{bench.map((unit, slot) => <button key={slot} className={`bench-slot ${unit?.uid === selectedUid ? "selected" : ""}`} onClick={() => unit && setSelectedUid(unit.uid)}>{unit ? <UnitShape unit={unit} selected={unit.uid === selectedUid} /> : <span>{slot + 1}</span>}</button>)}</div>
       <div className="shop-row"><div className="shop-title"><span>상점</span><button onClick={() => dispatch({ type: "REROLL" })}>↻ 2</button></div>{game.shop.map((item) => { const def = UNIT_DEFINITIONS[item.baseId]; return <button key={item.slot} disabled={item.purchased || game.phase !== "SHOP"} className="shop-card" onClick={() => dispatch({ type: "BUY", slot: item.slot })}><UnitShape unit={{ baseId: item.baseId, starLevel: 1 }} /><div><strong>{def.name}</strong><small>{def.role}</small></div><b>◆ {def.cost}</b>{item.purchased && <em>구매 완료</em>}</button>; })}</div>
-      <div className="primary-actions">{game.phase === "SHOP" && <button className="combat-button" onClick={() => dispatch({ type: "START_COMBAT" })}>전투 시작 <span>▶</span></button>}{game.phase === "RESULT" && <button className="combat-button" onClick={() => dispatch({ type: "NEXT_ROUND" })}>다음 라운드 <span>→</span></button>}{game.phase === "GAME_OVER" && <button className="combat-button" onClick={() => onComplete ? void onComplete(game) : void dispatch({ type: "RESET" })}>{onComplete?"기록하고 로비로":game.hp > 0 ? "승리 · 다시 하기" : "패배 · 다시 하기"}</button>}</div>
+      <div className="primary-actions">{game.phase === "SHOP" && (gameKey?<button className="combat-button" disabled>서버 전투 대기 <span>◷</span></button>:<button className="combat-button" onClick={() => dispatch({ type: "START_COMBAT" })}>전투 시작 <span>▶</span></button>)}{game.phase === "RESULT" && !gameKey&&<button className="combat-button" onClick={() => dispatch({ type: "NEXT_ROUND" })}>다음 라운드 <span>→</span></button>}{game.phase === "GAME_OVER" && <button className="combat-button" onClick={() => onComplete ? void onComplete(game) : void dispatch({ type: "RESET" })}>{onComplete?"기록하고 로비로":game.hp > 0 ? "승리 · 다시 하기" : "패배 · 다시 하기"}</button>}</div>
     </section>
   </main>;
 }

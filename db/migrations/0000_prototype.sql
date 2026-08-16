@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS online_games (
   phase text NOT NULL DEFAULT 'SHOP' CHECK (phase IN ('SHOP','COMBAT','RESULT','GAME_OVER')),
   round integer NOT NULL DEFAULT 1 CHECK (round > 0),
   phase_version integer NOT NULL DEFAULT 1,
+  transition_owner uuid,
   phase_ends_at timestamptz NOT NULL,
   seed text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -94,6 +95,23 @@ CREATE TABLE IF NOT EXISTS online_game_pairings (
   result jsonb,
   applied_at timestamptz,
   PRIMARY KEY (game_id, round, pairing_index)
+);
+
+CREATE TABLE IF NOT EXISTS online_combat_jobs (
+  game_id uuid NOT NULL REFERENCES online_games(id) ON DELETE CASCADE,
+  round integer NOT NULL,
+  phase_version integer NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','CALCULATING','COMPLETED')),
+  lease_owner uuid,
+  lease_until timestamptz,
+  attempt_count integer NOT NULL DEFAULT 0,
+  input_checksum text,
+  result_checksum text,
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  PRIMARY KEY (game_id, round),
+  UNIQUE (game_id, phase_version)
 );
 CREATE INDEX IF NOT EXISTS matchmaking_rooms_status_created_idx ON matchmaking_rooms(status,created_at DESC);
 CREATE INDEX IF NOT EXISTS completed_game_records_ended_idx ON completed_game_records(ended_at DESC);
