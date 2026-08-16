@@ -16,3 +16,58 @@
 .history-drawer{position:fixed;z-index:35;right:0;top:0;bottom:0;width:min(600px,100vw);background:#07171cf8;border-left:1px solid var(--line);box-shadow:-30px 0 80px #000a;overflow-y:auto}.history-drawer header{height:76px;display:flex;justify-content:space-between;align-items:center;padding:15px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#07171c;z-index:2}.history-drawer h2{margin:3px 0}.history-drawer header button{border:0;background:none;font-size:28px;cursor:pointer}.history-list{padding:14px}.history-list>p{color:var(--muted);text-align:center;padding:60px}.history-list>button{width:100%;display:flex;justify-content:space-between;text-align:left;padding:15px;margin-bottom:7px;border:1px solid var(--line);background:#0d2228;cursor:pointer}.history-list>button:hover{border-color:#58c9c2}.history-list div,.history-list span{display:flex;flex-direction:column;gap:5px}.history-list span{text-align:right}.history-list small{color:var(--muted);font-size:9px}.history-list span b{color:var(--gold);font-size:11px}.ledger-detail{padding:22px}.ledger-detail>button{border:1px solid var(--line);background:#10242a;padding:7px 12px;cursor:pointer}.ledger-detail h3{font-size:25px;margin-bottom:4px}.ledger-detail>p{color:var(--muted);font-size:11px}.ledger-detail h4{color:var(--cyan);font-size:10px;letter-spacing:.15em;margin-top:24px}.winner{padding:16px;border-left:3px solid var(--gold);background:#2b2413;color:var(--gold);font-weight:900}.ledger-detail pre{white-space:pre-wrap;word-break:break-word;max-height:350px;overflow:auto;padding:12px;background:#030b0e;border:1px solid var(--line);color:#94b8bd;font:10px/1.5 monospace}
 @media(max-width:760px){.portal-header{padding:0 12px}.portal-header nav>button{font-size:0}.portal-header nav>button b{font-size:11px}.session-badge small{display:none}.lobby-title{align-items:start;gap:18px}.lobby-title>div:last-child{flex-wrap:wrap;justify-content:end}.lobby-title>div:last-child span{display:none}.lobby-title h1,.room-heading h1{font-size:27px}.room-card{grid-template-columns:40px 1fr auto}.room-card>b{display:none}.seat-grid{grid-template-columns:repeat(2,1fr)}.brand strong{font-size:10px}}
 .game-mode-wrapper{position:relative;min-height:100vh}.floating-ledger{position:fixed;z-index:25;right:22px;top:84px;padding:9px 13px;border:1px solid var(--line);background:#0b2026e8;box-shadow:0 8px 22px #0008;cursor:pointer}.floating-ledger:hover{border-color:var(--cyan)}.score-card.eliminated{opacity:.42;filter:grayscale(1)}.opponent-note{display:block;margin:8px 0 12px;color:#f0c979}
+
+/* Responsive shell: keep the tactical board usable without hiding online state. */
+@media(max-width:900px){
+  .game-shell{overflow-x:hidden}
+  .topbar{height:auto;min-height:64px;grid-template-columns:1fr auto;padding:8px 12px;gap:8px}
+  .topbar .round{grid-column:2;grid-row:1/3;padding:6px 12px}
+  .topbar .resources{grid-column:1;grid-row:2;justify-self:start;gap:12px}
+  .arena-layout{display:flex;flex-direction:column;min-width:0;min-height:0;width:100%;padding:10px 8px;gap:10px}
+  .battle-stage{order:1;width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;align-items:flex-start;overscroll-behavior-inline:contain;scrollbar-width:thin}
+  .stage-header,.board-wrap,.message-line{min-width:620px}
+  .stage-header{padding-inline:8px}
+  .board-wrap{width:620px;align-self:flex-start}
+  .message-line{margin-bottom:4px}
+  .opponents{display:flex;order:2;width:100%;gap:8px;overflow-x:auto;padding:10px;scroll-snap-type:x proximity;overscroll-behavior-inline:contain}
+  .opponents h2{min-width:100%;margin:0 0 2px}
+  .opponents .score-card{flex:0 0 150px;margin:0;scroll-snap-align:start}
+  .opponents .opponent-note{flex:0 0 160px;margin:0;padding:10px}
+  .opponents .engine-card{flex:0 0 180px;margin:0}
+  .inspector{display:none}
+  .management{display:flex;flex-direction:column;min-width:0;width:100%;padding:8px;gap:10px;overflow:hidden}
+  .bench-row,.shop-row{grid-column:auto;width:100%;min-width:0;overflow-x:auto;justify-content:flex-start;overscroll-behavior-inline:contain;scroll-snap-type:x proximity;padding-bottom:5px}
+  .bench-row{padding-left:52px}
+  .bench-slot{flex:0 0 54px;scroll-snap-align:start}
+  .shop-row{display:flex}
+  .shop-title{flex:0 0 76px;position:sticky;left:0;z-index:2;background:#07161be8}
+  .shop-card{flex:0 0 150px;scroll-snap-align:start}
+  .primary-actions{order:3;display:block;width:100%}
+  .combat-button{width:100%}
+}
+
+@media(max-width:600px){
+  .brand-mark{width:34px;height:34px;font-size:12px}
+  .topbar .brand strong{font-size:10px}.topbar .brand small{display:none}
+  .topbar .round strong{font-size:19px}.topbar .round small{display:none}
+  .topbar .resources span{font-size:10px}.topbar .resources b{font-size:12px}
+  .floating-ledger{right:8px;top:70px;padding:7px 9px;font-size:11px}
+  .portal-header{height:64px;padding:0 8px;gap:8px}.lobby-shell{padding-top:64px}
+  .portal-header nav{gap:6px}.portal-header nav>button{padding:8px}.session-badge{padding:7px 8px;max-width:118px;overflow:hidden;white-space:nowrap}
+  .lobby-content,.room-screen{width:calc(100vw - 20px);padding:30px 0}
+  .lobby-title,.room-heading{align-items:flex-start;flex-direction:column;gap:12px;padding-inline:0}
+  .lobby-title>div:last-child{width:100%;justify-content:stretch}.lobby-title>div:last-child button{flex:1}
+  .room-count{align-self:flex-end}.room-count b{font-size:34px}
+  .room-card{grid-template-columns:38px minmax(0,1fr) auto;padding:10px;gap:9px}.room-card strong,.room-card small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .empty-lobby{padding:55px 20px}
+  .seat-grid{gap:8px}.seat{height:124px}.avatar{width:40px;height:40px;font-size:16px}
+  .history-drawer{width:100vw;border-left:0}.history-drawer header{height:64px;padding:10px 14px}.history-drawer h2{font-size:19px}
+  .history-list{padding:8px}.history-list>button{padding:12px;gap:12px}.history-list div{min-width:0}.history-list small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:58vw}
+  .ledger-detail{padding:14px}.ledger-detail h3{font-size:21px}.ledger-detail pre{font-size:9px}
+  .toast{left:10px;right:10px;top:72px;max-width:none}
+  .create-modal{padding:22px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
