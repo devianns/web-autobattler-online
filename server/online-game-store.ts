@@ -39,14 +39,15 @@ export async function loadOnlineGameView(gameId:string,sessionId:string){
   const state=await loadOnlineGame(gameId,sessionId); if(!state)return null;
   const games=await sql`SELECT phase,round,phase_version,phase_ends_at FROM online_games WHERE id=${gameId}::uuid`;
   if(!games[0])return null; const game=games[0];
-  let combat=null;
+  const playerRows=await sql`SELECT session_id::text,nickname_snapshot,seat,hp,wins,losses,eliminated_at FROM online_game_players WHERE game_id=${gameId}::uuid ORDER BY eliminated_at NULLS FIRST,hp DESC,seat`;
+  let combat=null; let opponentSessionId:string|null=null; let isGhost=false;
   if(game.phase==="COMBAT"||game.phase==="RESULT"){
-    const rows=await sql`SELECT result FROM online_game_pairings WHERE game_id=${gameId}::uuid AND round=${game.round} AND (player_a_id=${sessionId}::uuid OR (NOT is_ghost AND player_b_id=${sessionId}::uuid)) ORDER BY is_ghost ASC,pairing_index LIMIT 1`;
-    if(rows[0]?.result)combat=projectCombatForPlayer(rows[0].result as RoundCombatLedger,sessionId);
+    const rows=await sql`SELECT result,player_a_id::text,player_b_id::text,is_ghost FROM online_game_pairings WHERE game_id=${gameId}::uuid AND round=${game.round} AND (player_a_id=${sessionId}::uuid OR (NOT is_ghost AND player_b_id=${sessionId}::uuid)) ORDER BY is_ghost ASC,pairing_index LIMIT 1`;
+    if(rows[0]?.result){combat=projectCombatForPlayer(rows[0].result as RoundCombatLedger,sessionId);opponentSessionId=rows[0].player_a_id===sessionId?rows[0].player_b_id:rows[0].player_a_id;isGhost=rows[0].is_ghost}
   }
   const visiblePhase=state.hp<=0&&game.phase!=="GAME_OVER"?"RESULT":game.phase;
   const projected={...state,round:game.round,phase:visiblePhase,combat,combatHistory:state.combatHistory??[]} as PrototypeGameState;
-  return {state:projected,game:{phase:game.phase as PrototypeGameState["phase"],round:game.round,phaseVersion:game.phase_version,phaseEndsAt:game.phase_ends_at as string}};
+  return {state:projected,game:{phase:game.phase as PrototypeGameState["phase"],round:game.round,phaseVersion:game.phase_version,phaseEndsAt:game.phase_ends_at as string,opponentSessionId,isGhost,players:playerRows.map((row)=>({sessionId:row.session_id,nickname:row.nickname_snapshot,seat:row.seat,hp:row.hp,wins:row.wins,losses:row.losses,eliminated:row.eliminated_at!==null}))}};
 }
 
 export async function loadOnlineAction(gameId: string, sessionId: string, actionId: string) {

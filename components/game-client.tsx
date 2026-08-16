@@ -6,6 +6,8 @@ import { applyCommand, createGame, type GameCommand } from "@/game/state";
 import type { CombatResult, CombatUnit, OwnedUnit, PrototypeGameState } from "@/game/types";
 
 const CELLS = Array.from({ length: 64 }, (_, index) => ({ x: index % 8, y: Math.floor(index / 8) }));
+interface OnlinePlayer {sessionId:string;nickname:string;seat:number;hp:number;wins:number;losses:number;eliminated:boolean}
+interface OnlineMeta {phaseEndsAt:string;opponentSessionId:string|null;isGhost:boolean;players:OnlinePlayer[]}
 
 async function postCommand(snapshot: PrototypeGameState, command: GameCommand, endpoint = "/api/game") {
   const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actionId: crypto.randomUUID(), expectedVersion: snapshot.version, command }) });
@@ -51,6 +53,7 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
   const [speed, setSpeed] = useState(2);
   const [connection, setConnection] = useState<"LOADING" | "ONLINE" | "OFFLINE">("LOADING");
   const [busy, setBusy] = useState(true);
+  const [onlineMeta,setOnlineMeta]=useState<OnlineMeta|null>(null);
 
   const dispatch = async (command: GameCommand) => {
     if (busy) return;
@@ -72,15 +75,15 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
     let cancelled = false;
     void fetch(endpoint, { cache: "no-store" }).then(async (response) => {
       if (!response.ok) throw new Error("load failed");
-      const body = await response.json() as { state: PrototypeGameState };
+      const body = await response.json() as { state: PrototypeGameState;game?:OnlineMeta };
       const loaded = { ...body.state, combatHistory: body.state.combatHistory ?? [] };
       if (gameKey) sessionStorage.setItem("wa_active_game", gameKey);
-      if (!cancelled) { setGame(loaded); setConnection("ONLINE"); setBusy(false); }
+      if (!cancelled) { setGame(loaded);setOnlineMeta(body.game??null); setConnection("ONLINE"); setBusy(false); }
     }).catch(() => { if (!cancelled) { setConnection("OFFLINE"); setMessage(gameKey?"공용 게임 연결에 실패했습니다. 새로고침해 다시 연결하세요.":"DB 연결 없이 로컬 모드로 계속합니다."); setBusy(false); } });
     return () => { cancelled = true; };
   }, [endpoint, gameKey]);
 
-  useEffect(()=>{if(!gameKey)return;const timer=window.setInterval(()=>{if(document.visibilityState!=="visible")return;void fetch(endpoint,{cache:"no-store"}).then(async(response)=>{if(!response.ok)throw new Error("poll failed");const body=await response.json() as {state:PrototypeGameState};setGame({...body.state,combatHistory:body.state.combatHistory??[]});setConnection("ONLINE")}).catch(()=>setConnection("OFFLINE"))},1500);return()=>window.clearInterval(timer)},[endpoint,gameKey]);
+  useEffect(()=>{if(!gameKey)return;const timer=window.setInterval(()=>{if(document.visibilityState!=="visible")return;void fetch(endpoint,{cache:"no-store"}).then(async(response)=>{if(!response.ok)throw new Error("poll failed");const body=await response.json() as {state:PrototypeGameState;game:OnlineMeta};setGame({...body.state,combatHistory:body.state.combatHistory??[]});setOnlineMeta(body.game);setConnection("ONLINE")}).catch(()=>setConnection("OFFLINE"))},1500);return()=>window.clearInterval(timer)},[endpoint,gameKey]);
 
   useEffect(() => {
     if (game.phase !== "COMBAT" || !game.combat) return;
@@ -106,6 +109,7 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
   const boardUnits = game.phase === "COMBAT" && playback ? playback.units : boardOwned;
   const cellUnit = (x: number, y: number) => boardUnits.find((unit) => unit.position?.x === x && unit.position?.y === y && (!("isAlive" in unit) || unit.isAlive));
   const phaseLabel = { SHOP: "준비", COMBAT: "전투", RESULT: "결과", GAME_OVER: "게임 종료" }[game.phase];
+  const currentOpponent=onlineMeta?.players.find((player)=>player.sessionId===onlineMeta.opponentSessionId);
 
   return <main className="game-shell">
     <header className="topbar">
@@ -115,7 +119,7 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
     </header>
 
     <section className="arena-layout">
-      <aside className="side-panel opponents"><h2>전투 기록</h2><div className="score-card"><span>나</span><b>{game.wins}승 {game.losses}패</b><em>{game.hp} HP</em></div><div className="score-card enemy-score"><span>훈련 봇</span><b>적응형 덱</b><em>{game.enemyHp} HP</em></div><div className="engine-card"><span className={`live-dot ${connection === "OFFLINE" ? "offline" : ""}`} />{connection === "ONLINE" ? "NEON ONLINE" : connection === "LOADING" ? "CONNECTING" : "LOCAL FALLBACK"}<small>{game.combat ? `checksum ${game.combat.checksum}` : "결정론적 전투 대기"}</small></div></aside>
+      <aside className="side-panel opponents"><h2>{onlineMeta?"온라인 순위":"전투 기록"}</h2>{onlineMeta?<>{onlineMeta.players.map((player,index)=><div className={`score-card ${player.sessionId===onlineMeta.opponentSessionId?"enemy-score":""} ${player.eliminated?"eliminated":""}`} key={player.sessionId}><span>#{index+1} {player.nickname}{player.sessionId===onlineMeta.opponentSessionId?onlineMeta.isGhost?" · 유령":" · 상대":""}</span><b>{player.wins}승 {player.losses}패</b><em>{player.eliminated?"탈락":`${player.hp} HP`}</em></div>)}{currentOpponent&&<small className="opponent-note">현재 상대: {currentOpponent.nickname}{onlineMeta.isGhost?"의 유령":""}</small>}</>:<><div className="score-card"><span>나</span><b>{game.wins}승 {game.losses}패</b><em>{game.hp} HP</em></div><div className="score-card enemy-score"><span>훈련 봇</span><b>적응형 덱</b><em>{game.enemyHp} HP</em></div></>}<div className="engine-card"><span className={`live-dot ${connection === "OFFLINE" ? "offline" : ""}`} />{connection === "ONLINE" ? "NEON ONLINE" : connection === "LOADING" ? "CONNECTING" : gameKey?"RECONNECTING":"LOCAL FALLBACK"}<small>{game.combat ? `checksum ${game.combat.checksum}` : "결정론적 전투 대기"}</small></div></aside>
 
       <div className="battle-stage">
         <div className="stage-header"><div><b>{game.phase === "COMBAT" ? `${(Math.min(game.combat?.durationMs ?? 0, elapsed) / 1000).toFixed(1)}s` : `${boardOwned.length} / ${game.level}`}</b><small>{game.phase === "COMBAT" ? "전투 시간" : "배치 유닛"}</small></div>{game.phase === "COMBAT" && <div className="speed-control">속도 {[1, 2, 4].map((value) => <button key={value} className={speed === value ? "active" : ""} onClick={() => setSpeed(value)}>×{value}</button>)}</div>}</div>
