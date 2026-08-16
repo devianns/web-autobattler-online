@@ -7,8 +7,8 @@ import type { CombatResult, CombatUnit, OwnedUnit, PrototypeGameState } from "@/
 
 const CELLS = Array.from({ length: 64 }, (_, index) => ({ x: index % 8, y: Math.floor(index / 8) }));
 
-async function postCommand(snapshot: PrototypeGameState, command: GameCommand) {
-  const response = await fetch("/api/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actionId: crypto.randomUUID(), expectedVersion: snapshot.version, command }) });
+async function postCommand(snapshot: PrototypeGameState, command: GameCommand, endpoint = "/api/game") {
+  const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actionId: crypto.randomUUID(), expectedVersion: snapshot.version, command }) });
   const body = await response.json() as { state?: PrototypeGameState; error?: string };
   if (!response.ok && !body.state) throw new Error(body.error ?? "서버 동기화 실패");
   return body;
@@ -43,6 +43,7 @@ function BoardUnit({ unit, selected, active, onClick }: { unit: CombatUnit | Own
 }
 
 export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?: string; roomName?: string; onComplete?: (game: PrototypeGameState) => Promise<void> }) {
+  const endpoint = gameKey ? `/api/online-games/${gameKey}` : "/api/game";
   const [game, setGame] = useState<PrototypeGameState>(() => createGame("prototype-alpha"));
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [message, setMessage] = useState("유닛을 구매한 뒤 벤치에서 선택하세요.");
@@ -53,14 +54,15 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
 
   const dispatch = async (command: GameCommand) => {
     if (busy) return;
+    if (gameKey && connection !== "ONLINE") { setMessage("서버 연결을 복구한 뒤 다시 시도하세요."); return; }
     const snapshot = game; const result = applyCommand(snapshot, command);
     if (command.type === "START_COMBAT" || command.type === "RESET") setElapsed(0);
     if (result.error) { setMessage(result.error); return; }
     setGame(result.state);
     if (connection === "OFFLINE") { setMessage("로컬 모드에서 진행 중입니다."); return; }
     setBusy(true);
-    try { const body = await postCommand(snapshot, command); if (body.state) setGame(body.state); setConnection("ONLINE"); }
-    catch { setConnection("OFFLINE"); setMessage("DB 연결 없이 로컬 모드로 계속합니다."); }
+    try { const body = await postCommand(snapshot, command, endpoint); if (body.state) setGame(body.state); setConnection("ONLINE"); }
+    catch { setConnection("OFFLINE"); if (gameKey) { setGame(snapshot); setMessage("명령을 저장하지 못해 서버 상태로 되돌렸습니다."); } else setMessage("DB 연결 없이 로컬 모드로 계속합니다."); }
     finally { setBusy(false); }
     if (command.type !== "FINISH_COMBAT") setMessage("명령이 적용되었습니다.");
     if (["MOVE", "BENCH", "SELL"].includes(command.type)) setSelectedUid(null);
@@ -68,19 +70,15 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/game", { cache: "no-store" }).then(async (response) => {
+    void fetch(endpoint, { cache: "no-store" }).then(async (response) => {
       if (!response.ok) throw new Error("load failed");
       const body = await response.json() as { state: PrototypeGameState };
-      let loaded = { ...body.state, combatHistory: body.state.combatHistory ?? [] };
-      if (gameKey && sessionStorage.getItem("wa_active_game") !== gameKey) {
-        const reset = await postCommand(loaded, { type: "RESET" });
-        if (reset.state) loaded = { ...reset.state, combatHistory: reset.state.combatHistory ?? [] };
-        sessionStorage.setItem("wa_active_game", gameKey);
-      }
+      const loaded = { ...body.state, combatHistory: body.state.combatHistory ?? [] };
+      if (gameKey) sessionStorage.setItem("wa_active_game", gameKey);
       if (!cancelled) { setGame(loaded); setConnection("ONLINE"); setBusy(false); }
-    }).catch(() => { if (!cancelled) { setConnection("OFFLINE"); setBusy(false); } });
+    }).catch(() => { if (!cancelled) { setConnection("OFFLINE"); setMessage(gameKey?"공용 게임 연결에 실패했습니다. 새로고침해 다시 연결하세요.":"DB 연결 없이 로컬 모드로 계속합니다."); setBusy(false); } });
     return () => { cancelled = true; };
-  }, [gameKey]);
+  }, [endpoint, gameKey]);
 
   useEffect(() => {
     if (game.phase !== "COMBAT" || !game.combat) return;
@@ -91,12 +89,12 @@ export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?
         const command = { type: "FINISH_COMBAT" } as const;
         const result = applyCommand(game, command);
         setGame(result.state);
-        if (connection !== "OFFLINE") void postCommand(game, command).then((body) => { if (body.state) setGame(body.state); setConnection("ONLINE"); }).catch(() => setConnection("OFFLINE"));
+        if (connection !== "OFFLINE") void postCommand(game, command, endpoint).then((body) => { if (body.state) setGame(body.state); setConnection("ONLINE"); }).catch(() => setConnection("OFFLINE"));
       }
       return next;
     }), 50);
     return () => window.clearInterval(timer);
-  }, [game, speed, connection]);
+  }, [game, speed, connection, endpoint]);
 
   const playback = useMemo(() => game.combat ? playbackUnits(game.combat, elapsed) : null, [game.combat, elapsed]);
   const boardOwned = game.units.filter((unit) => unit.location === "BOARD");

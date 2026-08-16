@@ -65,9 +65,22 @@ CREATE TABLE IF NOT EXISTS online_game_players (
   board jsonb NOT NULL DEFAULT '[]'::jsonb,
   bench jsonb NOT NULL DEFAULT '[]'::jsonb,
   shop jsonb NOT NULL DEFAULT '[]'::jsonb,
+  state jsonb,
   PRIMARY KEY (game_id, session_id),
   UNIQUE (game_id, seat)
 );
+
+CREATE TABLE IF NOT EXISTS online_game_actions (
+  game_id uuid NOT NULL REFERENCES online_games(id) ON DELETE CASCADE,
+  session_id uuid NOT NULL REFERENCES anonymous_sessions(id),
+  action_id uuid NOT NULL,
+  response jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (game_id, session_id, action_id)
+);
+
+CREATE INDEX IF NOT EXISTS online_game_actions_player_idx
+  ON online_game_actions(game_id, session_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS online_game_pairings (
   game_id uuid NOT NULL REFERENCES online_games(id) ON DELETE CASCADE,
