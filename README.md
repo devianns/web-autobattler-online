@@ -624,6 +624,8 @@ Redis, 메시지 큐, 별도 WebSocket 서버는 초기 필수 스택에 포함�
 
 오류 응답과 로그는 공통 `requestId`로 연결한다. 운영 도구는 게임 ID로 현재 상태, phase version, 최근 actions, combat job을 읽을 수 있어야 하지만 임의 상태 수정 기능은 초기에는 두지 않는다.
 
+현재 `GET /api/health`는 Neon에 실제 `SELECT now()`를 보내 연결 가능 여부와 DB 왕복 지연을 확인한다. 성공 시 200, DB 장애 시 접속 정보나 내부 오류를 노출하지 않고 503을 반환한다. 온라인 게임 API 응답에는 `X-Request-Id`와 `Server-Timing` 헤더가 포함되며, 500 응답 본문에도 문의·로그 검색용 request ID가 포함된다. 실제 phase 전환과 오류는 Vercel 로그에 한 줄 JSON으로 기록되어 `requestId`, `gameId`, 전환 종류와 처리 시간을 검색할 수 있다. 닉네임, 세션 ID, DB URL과 전체 게임 상태는 진단 로그에 기록하지 않는다.
+
 ## 17. 구현 순서와 완료 기준
 
 ### Phase 0 — 규칙 고정

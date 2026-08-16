@@ -4,6 +4,7 @@ import { getSessionId } from "@/server/session";
 import { loadOnlineAction, loadOnlineGame, loadOnlineGameView, rerollOnlineShop, saveOnlineCommand } from "@/server/online-game-store";
 import { reconcileOnlineGame } from "@/server/online-reconcile";
 import { consumeRateLimit } from "@/server/rate-limit";
+import { createRequestTrace, logServerEvent, traceHeaders } from "@/server/observability";
 
 export const runtime="nodejs"; export const dynamic="force-dynamic";
 type Context={params:Promise<{gameId:string}>};
@@ -14,30 +15,31 @@ const command=z.discriminatedUnion("type",[
   z.object({type:z.literal("BENCH"),uid:z.string().min(1).max(100)}),z.object({type:z.literal("SELL"),uid:z.string().min(1).max(100)})
 ]);
 const requestSchema=z.object({actionId:z.string().uuid(),expectedVersion:z.number().int().positive(),command});
-const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{"Cache-Control":"no-store"}});
+const json=(trace:ReturnType<typeof createRequestTrace>,body:unknown,status=200)=>Response.json(body,{status,headers:traceHeaders(trace)});
 
-export async function GET(_request:Request,{params}:Context){try{const gameId=z.string().uuid().safeParse((await params).gameId);if(!gameId.success)return json({error:"잘못된 게임 ID입니다."},400);const sessionId=await getSessionId();const member=await loadOnlineGame(gameId.data,sessionId);if(!member)return json({error:"게임 참가자가 아닙니다."},404);const reconcileStatus=await reconcileOnlineGame(gameId.data);const view=await loadOnlineGameView(gameId.data,sessionId);return json({...view,reconcileStatus,serverNow:new Date().toISOString()})}catch(error){console.error("online.game.load.failed",error);return json({error:"공용 게임을 불러오지 못했습니다."},500)}}
+export async function GET(_request:Request,{params}:Context){const trace=createRequestTrace();try{const gameId=z.string().uuid().safeParse((await params).gameId);if(!gameId.success)return json(trace,{error:"잘못된 게임 ID입니다."},400);const sessionId=await getSessionId();const member=await loadOnlineGame(gameId.data,sessionId);if(!member)return json(trace,{error:"게임 참가자가 아닙니다."},404);const reconcileStatus=await reconcileOnlineGame(gameId.data,{requestId:trace.requestId});const view=await loadOnlineGameView(gameId.data,sessionId);return json(trace,{...view,reconcileStatus,serverNow:new Date().toISOString()})}catch(error){logServerEvent("error","online.game.load.failed",{requestId:trace.requestId,durationMs:Date.now()-trace.startedAt},error);return json(trace,{error:"공용 게임을 불러오지 못했습니다.",requestId:trace.requestId},500)}}
 export async function POST(request:Request,{params}:Context){
+  const trace=createRequestTrace();
   try{
-    const gameId=z.string().uuid().safeParse((await params).gameId);if(!gameId.success)return json({error:"잘못된 게임 ID입니다."},400);const parsed=requestSchema.safeParse(await request.json());
-    if(!parsed.success)return json({error:"잘못된 게임 명령입니다."},400);
-    const sessionId=await getSessionId();await reconcileOnlineGame(gameId.data);const view=await loadOnlineGameView(gameId.data,sessionId);
-    if(!view)return json({error:"게임 참가자가 아닙니다."},403);
-    if(view.state.hp<=0)return json({error:"탈락한 플레이어는 게임 명령을 실행할 수 없습니다.",state:view.state},403);
-    if(view.game.phase!=="SHOP"||new Date(view.game.phaseEndsAt).getTime()<=Date.now())return json({error:"상점 단계가 종료되었습니다.",state:view.state},409);
+    const gameId=z.string().uuid().safeParse((await params).gameId);if(!gameId.success)return json(trace,{error:"잘못된 게임 ID입니다."},400);const parsed=requestSchema.safeParse(await request.json());
+    if(!parsed.success)return json(trace,{error:"잘못된 게임 명령입니다."},400);
+    const sessionId=await getSessionId();await reconcileOnlineGame(gameId.data,{requestId:trace.requestId});const view=await loadOnlineGameView(gameId.data,sessionId);
+    if(!view)return json(trace,{error:"게임 참가자가 아닙니다."},403);
+    if(view.state.hp<=0)return json(trace,{error:"탈락한 플레이어는 게임 명령을 실행할 수 없습니다.",state:view.state},403);
+    if(view.game.phase!=="SHOP"||new Date(view.game.phaseEndsAt).getTime()<=Date.now())return json(trace,{error:"상점 단계가 종료되었습니다.",state:view.state},409);
     const duplicate=await loadOnlineAction(gameId.data,sessionId,parsed.data.actionId);
-    if(duplicate)return json({state:duplicate,actionStatus:"DUPLICATE",serverNow:new Date().toISOString()});
-    if(!(await consumeRateLimit({sessionId,scope:"game-command",limit:120,windowSeconds:60})).allowed)return json({error:"게임 명령 요청이 너무 많습니다.",state:view.state},429);
-    const current=await loadOnlineGame(gameId.data,sessionId);if(!current)return json({error:"게임 참가자가 아닙니다."},403);
-    if(current.version!==parsed.data.expectedVersion)return json({error:"상태가 갱신되었습니다.",state:current},409);
+    if(duplicate)return json(trace,{state:duplicate,actionStatus:"DUPLICATE",serverNow:new Date().toISOString()});
+    if(!(await consumeRateLimit({sessionId,scope:"game-command",limit:120,windowSeconds:60})).allowed)return json(trace,{error:"게임 명령 요청이 너무 많습니다.",state:view.state},429);
+    const current=await loadOnlineGame(gameId.data,sessionId);if(!current)return json(trace,{error:"게임 참가자가 아닙니다."},403);
+    if(current.version!==parsed.data.expectedVersion)return json(trace,{error:"상태가 갱신되었습니다.",state:current},409);
     if(parsed.data.command.type==="REROLL"){
       const saved=await rerollOnlineShop({gameId:gameId.data,sessionId,actionId:parsed.data.actionId,expectedVersion:parsed.data.expectedVersion,current});
-      if(saved.status==="INVALID")return json({error:saved.error,state:saved.state},422);
-      return json({state:saved.state,actionStatus:saved.status,serverNow:new Date().toISOString()},saved.status==="CONFLICT"?409:200);
+      if(saved.status==="INVALID")return json(trace,{error:saved.error,state:saved.state},422);
+      return json(trace,{state:saved.state,actionStatus:saved.status,serverNow:new Date().toISOString()},saved.status==="CONFLICT"?409:200);
     }
     const gameCommand=parsed.data.command as GameCommand;const result=applyCommand(current,gameCommand);
-    if(result.error)return json({error:result.error,state:current},422);
+    if(result.error)return json(trace,{error:result.error,state:current},422);
     const saved=await saveOnlineCommand({gameId:gameId.data,sessionId,actionId:parsed.data.actionId,expectedVersion:parsed.data.expectedVersion,state:result.state,previousState:current,command:gameCommand});
-    return json({state:saved.state,actionStatus:saved.status,serverNow:new Date().toISOString()},saved.status==="CONFLICT"?409:200);
-  }catch(error){console.error("online.game.command.failed",error);return json({error:"공용 게임 명령 처리에 실패했습니다."},500)}
+    return json(trace,{state:saved.state,actionStatus:saved.status,serverNow:new Date().toISOString()},saved.status==="CONFLICT"?409:200);
+  }catch(error){logServerEvent("error","online.game.command.failed",{requestId:trace.requestId,durationMs:Date.now()-trace.startedAt},error);return json(trace,{error:"공용 게임 명령 처리에 실패했습니다.",requestId:trace.requestId},500)}
 }

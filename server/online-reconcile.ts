@@ -6,6 +6,7 @@ import { applyCommand } from "@/game/state";
 import { copiesForStar, reserveShop, type PoolAvailability } from "@/game/pool";
 import { sql } from "./database";
 import { ensureOnlineSchema, loadOnlineGame } from "./online-game-store";
+import { logServerEvent } from "./observability";
 
 export type ReconcileStatus = "NOT_DUE" | "BUSY" | "COMBAT_READY";
 
@@ -89,12 +90,21 @@ export async function reconcileCombatToResult(gameId:string){
   return rows[0]?.claimed_count>0?"RESULT_READY" as const:"NOT_DUE" as const;
 }
 
-export async function reconcileOnlineGame(gameId:string){
+export async function reconcileOnlineGame(gameId:string,context: {requestId?:string} = {}){
+  const startedAt=Date.now();
   const shop=await reconcileShopToCombat(gameId);
-  if(shop==="COMBAT_READY"||shop==="BUSY")return shop;
+  if(shop==="COMBAT_READY"||shop==="BUSY"){
+    if(shop==="COMBAT_READY")logServerEvent("info","online.game.phase.transition",{requestId:context.requestId,gameId,transition:"SHOP_TO_COMBAT",durationMs:Date.now()-startedAt});
+    return shop;
+  }
   const combat=await reconcileCombatToResult(gameId);
-  if(combat==="RESULT_READY")return combat;
-  return reconcileResult(gameId);
+  if(combat==="RESULT_READY"){
+    logServerEvent("info","online.game.phase.transition",{requestId:context.requestId,gameId,transition:"COMBAT_TO_RESULT",durationMs:Date.now()-startedAt});
+    return combat;
+  }
+  const result=await reconcileResult(gameId);
+  if(result!=="NOT_DUE")logServerEvent("info","online.game.phase.transition",{requestId:context.requestId,gameId,transition:result==="GAME_OVER"?"RESULT_TO_GAME_OVER":"RESULT_TO_SHOP",durationMs:Date.now()-startedAt});
+  return result;
 }
 
 export async function reconcileResult(gameId:string){
