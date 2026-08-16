@@ -90,13 +90,6 @@ export async function leaveRoom(roomId: string, sessionId: string) {
   return true;
 }
 
-export async function finishRoom(roomId: string, sessionId: string, payload: { rounds: number; winnerNickname: string | null; summary: unknown; ledger: unknown }) {
-  await ensureLobbySchema();
-  const id = crypto.randomUUID();
-  const rows = await sql`WITH finished AS (UPDATE matchmaking_rooms r SET status='FINISHED',finished_at=now(),version=version+1 WHERE r.id=${roomId}::uuid AND r.status='STARTED' AND EXISTS (SELECT 1 FROM matchmaking_room_players p WHERE p.room_id=r.id AND p.session_id=${sessionId}::uuid) RETURNING r.*), inserted AS (INSERT INTO completed_game_records (id,room_id,room_name,started_at,rounds,winner_nickname,player_nicknames,summary,ledger) SELECT ${id}::uuid,f.id,f.name,f.started_at,${payload.rounds},${payload.winnerNickname},(SELECT jsonb_agg(p.nickname_snapshot ORDER BY p.seat) FROM matchmaking_room_players p WHERE p.room_id=f.id),${JSON.stringify(payload.summary)}::jsonb,${JSON.stringify(payload.ledger)}::jsonb FROM finished f ON CONFLICT (room_id) DO NOTHING RETURNING id) SELECT id::text FROM inserted`;
-  return rows[0]?.id as string | undefined;
-}
-
 export async function listHistory(): Promise<GameHistorySummary[]> {
   await ensureLobbySchema();
   const rows = await sql`SELECT id::text,room_id::text,room_name,started_at,ended_at,rounds,winner_nickname,player_nicknames,summary FROM completed_game_records ORDER BY ended_at DESC LIMIT 100`;
