@@ -1,11 +1,10 @@
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { applyCommand, type GameCommand } from "@/game/state";
 import { loadOrCreateGame, loadSavedAction, saveGameCommand } from "@/server/prototype-store";
+import { getSessionId } from "@/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const SESSION_COOKIE = "wa_session";
 
 const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("BUY"), slot: z.number().int().min(0).max(4) }),
@@ -20,20 +19,10 @@ const commandSchema = z.discriminatedUnion("type", [
 ]);
 const requestSchema = z.object({ actionId: z.string().uuid(), expectedVersion: z.number().int().positive(), command: commandSchema });
 
-async function session() {
-  const store = await cookies();
-  let id = store.get(SESSION_COOKIE)?.value;
-  if (!id) {
-    id = crypto.randomUUID();
-    store.set(SESSION_COOKIE, id, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 24 * 30 });
-  }
-  return id;
-}
-
 const response = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 export async function GET() {
-  try { return response({ state: await loadOrCreateGame(await session()), serverNow: new Date().toISOString() }); }
+  try { return response({ state: await loadOrCreateGame(await getSessionId()), serverNow: new Date().toISOString() }); }
   catch (error) { console.error("game.load.failed", error); return response({ error: "게임 상태를 불러오지 못했습니다." }, 500); }
 }
 
@@ -41,7 +30,7 @@ export async function POST(request: Request) {
   try {
     const parsed = requestSchema.safeParse(await request.json());
     if (!parsed.success) return response({ error: "잘못된 게임 명령입니다.", issues: parsed.error.issues }, 400);
-    const sessionId = await session();
+    const sessionId = await getSessionId();
     const duplicate = await loadSavedAction(sessionId, parsed.data.actionId);
     if (duplicate) return response({ state: duplicate, actionStatus: "DUPLICATE", serverNow: new Date().toISOString() });
     const current = await loadOrCreateGame(sessionId);

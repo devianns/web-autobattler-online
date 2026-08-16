@@ -22,7 +22,7 @@ function rollShop(seed: string, round: number, version: number): ShopSlot[] {
 }
 
 export function createGame(seed = `game-${Date.now()}`): PrototypeGameState {
-  return { version: 1, seed, phase: "SHOP", round: 1, hp: 100, enemyHp: 100, gold: 8, level: 3, wins: 0, losses: 0, units: [], shop: rollShop(seed, 1, 1), combat: null, lastResult: "상점에서 유닛을 사고 보드에 배치하세요." };
+  return { version: 1, seed, phase: "SHOP", round: 1, hp: 100, enemyHp: 100, gold: 8, level: 3, wins: 0, losses: 0, units: [], shop: rollShop(seed, 1, 1), combat: null, combatHistory: [], lastResult: "상점에서 유닛을 사고 보드에 배치하세요." };
 }
 
 function clone(state: PrototypeGameState): PrototypeGameState { return structuredClone(state) }
@@ -100,6 +100,8 @@ export function applyCommand(current: PrototypeGameState, command: GameCommand):
   }
   if (command.type === "FINISH_COMBAT") {
     if (state.phase !== "COMBAT" || !state.combat) return fail(current, "진행 중인 전투가 없습니다.");
+    state.combatHistory ??= [];
+    state.combatHistory.push(state.combat);
     const playerSurvivors = state.combat.finalUnits.filter((unit) => unit.isAlive && unit.team === "PLAYER").reduce((sum, unit) => sum + unit.starLevel, 0);
     const enemySurvivors = state.combat.finalUnits.filter((unit) => unit.isAlive && unit.team === "ENEMY").reduce((sum, unit) => sum + unit.starLevel, 0);
     if (state.combat.winner === "PLAYER") { const damage = playerDamage(state.round, playerSurvivors); state.enemyHp = Math.max(0, state.enemyHp - damage); state.wins += 1; state.lastResult = `승리! 상대에게 ${damage} 피해`; }

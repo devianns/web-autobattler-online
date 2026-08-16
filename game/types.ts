@@ -19,4 +19,4 @@ export interface CombatResult { seed: string; winner: Team | null; reason: Comba
 export interface OwnedUnit { uid: string; baseId: UnitBaseId; starLevel: 1 | 2 | 3; location: "BOARD" | "BENCH"; position: GridPosition | null; benchSlot: number | null }
 export interface ShopSlot { slot: number; baseId: UnitBaseId; purchased: boolean }
 export type GamePhase = "SHOP" | "COMBAT" | "RESULT" | "GAME_OVER";
-export interface PrototypeGameState { version: number; seed: string; phase: GamePhase; round: number; hp: number; enemyHp: number; gold: number; level: number; wins: number; losses: number; units: OwnedUnit[]; shop: ShopSlot[]; combat: CombatResult | null; lastResult: string | null }
+export interface PrototypeGameState { version: number; seed: string; phase: GamePhase; round: number; hp: number; enemyHp: number; gold: number; level: number; wins: number; losses: number; units: OwnedUnit[]; shop: ShopSlot[]; combat: CombatResult | null; combatHistory: CombatResult[]; lastResult: string | null }

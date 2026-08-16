@@ -42,7 +42,7 @@ function BoardUnit({ unit, selected, active, onClick }: { unit: CombatUnit | Own
   return <button className={`board-unit ${combat && unit.team === "ENEMY" ? "enemy" : "player"}`} onClick={onClick} aria-label={`${definition.name} ${unit.starLevel}성`}><div className="bars"><span className="hp" style={{ width: `${hp}%` }} />{mana > 0 && <span className="mana" style={{ width: `${mana}%` }} />}</div><UnitShape unit={unit} selected={selected} active={active} /><small>{definition.name}</small></button>;
 }
 
-export default function GameClient() {
+export default function GameClient({ gameKey, roomName, onComplete }: { gameKey?: string; roomName?: string; onComplete?: (game: PrototypeGameState) => Promise<void> }) {
   const [game, setGame] = useState<PrototypeGameState>(() => createGame("prototype-alpha"));
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [message, setMessage] = useState("유닛을 구매한 뒤 벤치에서 선택하세요.");
@@ -71,10 +71,16 @@ export default function GameClient() {
     void fetch("/api/game", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) throw new Error("load failed");
       const body = await response.json() as { state: PrototypeGameState };
-      if (!cancelled) { setGame(body.state); setConnection("ONLINE"); setBusy(false); }
+      let loaded = { ...body.state, combatHistory: body.state.combatHistory ?? [] };
+      if (gameKey && sessionStorage.getItem("wa_active_game") !== gameKey) {
+        const reset = await postCommand(loaded, { type: "RESET" });
+        if (reset.state) loaded = { ...reset.state, combatHistory: reset.state.combatHistory ?? [] };
+        sessionStorage.setItem("wa_active_game", gameKey);
+      }
+      if (!cancelled) { setGame(loaded); setConnection("ONLINE"); setBusy(false); }
     }).catch(() => { if (!cancelled) { setConnection("OFFLINE"); setBusy(false); } });
     return () => { cancelled = true; };
-  }, []);
+  }, [gameKey]);
 
   useEffect(() => {
     if (game.phase !== "COMBAT" || !game.combat) return;
@@ -102,7 +108,7 @@ export default function GameClient() {
 
   return <main className="game-shell">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark">WA</span><div><strong>WEB AUTOBATTLER</strong><small>SERVERLESS PROTOTYPE</small></div></div>
+      <div className="brand"><span className="brand-mark">WA</span><div><strong>WEB AUTOBATTLER</strong><small>{roomName??"SERVERLESS PROTOTYPE"}</small></div></div>
       <div className="round"><small>ROUND</small><strong>{game.round}</strong><span>{phaseLabel}</span></div>
       <div className="resources"><span>❤ <b>{game.hp}</b></span><span>◆ <b>{game.gold}</b></span><span>LV <b>{game.level}</b></span></div>
     </header>
@@ -122,7 +128,7 @@ export default function GameClient() {
     <section className="management">
       <div className="bench-row"><span className="section-label">BENCH</span>{bench.map((unit, slot) => <button key={slot} className={`bench-slot ${unit?.uid === selectedUid ? "selected" : ""}`} onClick={() => unit && setSelectedUid(unit.uid)}>{unit ? <UnitShape unit={unit} selected={unit.uid === selectedUid} /> : <span>{slot + 1}</span>}</button>)}</div>
       <div className="shop-row"><div className="shop-title"><span>상점</span><button onClick={() => dispatch({ type: "REROLL" })}>↻ 2</button></div>{game.shop.map((item) => { const def = UNIT_DEFINITIONS[item.baseId]; return <button key={item.slot} disabled={item.purchased || game.phase !== "SHOP"} className="shop-card" onClick={() => dispatch({ type: "BUY", slot: item.slot })}><UnitShape unit={{ baseId: item.baseId, starLevel: 1 }} /><div><strong>{def.name}</strong><small>{def.role}</small></div><b>◆ {def.cost}</b>{item.purchased && <em>구매 완료</em>}</button>; })}</div>
-      <div className="primary-actions">{game.phase === "SHOP" && <button className="combat-button" onClick={() => dispatch({ type: "START_COMBAT" })}>전투 시작 <span>▶</span></button>}{game.phase === "RESULT" && <button className="combat-button" onClick={() => dispatch({ type: "NEXT_ROUND" })}>다음 라운드 <span>→</span></button>}{game.phase === "GAME_OVER" && <button className="combat-button" onClick={() => dispatch({ type: "RESET" })}>{game.hp > 0 ? "승리 · 다시 하기" : "패배 · 다시 하기"}</button>}</div>
+      <div className="primary-actions">{game.phase === "SHOP" && <button className="combat-button" onClick={() => dispatch({ type: "START_COMBAT" })}>전투 시작 <span>▶</span></button>}{game.phase === "RESULT" && <button className="combat-button" onClick={() => dispatch({ type: "NEXT_ROUND" })}>다음 라운드 <span>→</span></button>}{game.phase === "GAME_OVER" && <button className="combat-button" onClick={() => onComplete ? void onComplete(game) : void dispatch({ type: "RESET" })}>{onComplete?"기록하고 로비로":game.hp > 0 ? "승리 · 다시 하기" : "패배 · 다시 하기"}</button>}</div>
     </section>
   </main>;
 }

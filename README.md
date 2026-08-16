@@ -8,6 +8,19 @@ Vercel과 Neon PostgreSQL만으로 운영하는 8인 온라인 웹 오토배틀�
 
 도형 에셋만 사용하는 첫 플레이 가능 수직 슬라이스가 구현되어 있습니다.
 
+### 온라인 포털과 익명 세션
+
+- 로그인 없이 브라우저별 UUID를 HttpOnly 쿠키로 발급한다. 쿠키는 30일 유지되지만 계정 복구 수단은 없으므로 사실상 일회용 게스트 세션이다.
+- 세션마다 1~16자의 닉네임을 설정한다. 닉네임은 중복 가능하며 방과 완료 기록에는 당시 닉네임 스냅샷을 남긴다.
+- 공개 대기방 목록 → 방 입장 → 비방장 레디 → 방장 시작 → 게임 → 결과 장부 저장 → 대기방 복귀 흐름을 제공한다.
+- 방은 최대 8명이며 좌석 배정, 방장 권한, 레디 상태, 시작 조건을 Neon 트랜잭션과 제약으로 판정한다.
+- 완료된 모든 대전은 공개 기록 목록과 상세 JSON 장부로 열람할 수 있다. 기록 버튼은 로비와 게임 화면에서 항상 접근 가능하다.
+- 방 목록과 기록은 `localStorage`의 마지막 스냅샷을 먼저 그린 뒤 최신 데이터를 백그라운드에서 교체한다. 로비는 화면이 보일 때 4초, 입장한 방은 1.5초 간격으로 갱신하며 탭이 숨겨지면 불필요한 요청을 멈춘다.
+- 서버 응답의 `serverNow`와 DB의 생성·시작·종료 시각이 시간 기준이다. 클라이언트 시계는 게임 판정에 사용하지 않는다.
+- HTTP 게임/방/기록 응답은 `no-store`이며, 빠른 표시를 위한 브라우저 스냅샷은 판정 원본이 아닌 파생 캐시다.
+
+주요 API는 `GET/POST /api/session`, `GET/POST /api/rooms`, `GET/POST /api/rooms/:roomId`, `GET /api/history`, `GET /api/history/:historyId`이다. 최초 요청 시 필요한 표와 인덱스를 멱등적으로 준비하며 동일 정의는 마이그레이션 파일에도 포함한다.
+
 - 8×8 도형 기반 2.5D 보드와 아군 4개 행 배치
 - 상점 5칸, 벤치 9칸, 구매·판매·새로고침·보드 이동
 - 동일 1성 유닛 3개 자동 합성
@@ -20,7 +33,7 @@ Vercel과 Neon PostgreSQL만으로 운영하는 8인 온라인 웹 오토배틀�
 - Neon JSONB 상태 저장, HttpOnly 게스트 세션, `actionId` 멱등성, version 충돌 방지
 - DB 연결 실패 시 현재 탭에서 계속 플레이할 수 있는 로컬 fallback
 
-현재 온라인 범위는 **게스트 1명 대 훈련 봇의 서버 권위형 프로토타입**이다. 전투 엔진과 Neon 명령 장부를 먼저 검증하기 위한 단계이며, 8인 매칭·공유 유닛 풀·플레이어 간 pairing과 요청 기반 전체 게임 reconcile은 다음 온라인 확장 단계에서 구현한다.
+현재 온라인 범위는 **여러 게스트가 공유하는 방·레디·시작·공개 결과 장부와, 각 게스트가 실행하는 훈련 봇 전투를 연결한 수직 슬라이스**다. 매칭 외부 흐름은 Neon을 통해 실제로 공유되지만, 방 시작 뒤의 전투는 아직 참가자 전체가 같은 라운드 상태와 상대 pairing을 공유하는 8인전이 아니다. 공유 유닛 풀, 플레이어 간 pairing, 탈락/유령전, 요청 기반 전체 게임 reconcile은 다음 엔진 통합 단계에서 구현한다.
 
 ### 실행
 
@@ -29,7 +42,7 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:3000`을 연다. `.env.local`에 `DATABASE_URL` 또는 `POSTGRES_URL`이 있으면 Neon 온라인 저장 모드로 연결된다. 최초 API 요청은 `prototype_game_states`, `prototype_game_actions`와 인덱스를 idempotent하게 준비한다. 동일 SQL은 [`db/migrations/0000_prototype.sql`](./db/migrations/0000_prototype.sql)에 기록되어 있다. 현재 JSONB 프로토타입은 명시적 SQL과 Neon driver만 사용하며, Drizzle은 8인 정규화 스키마 단계까지 도입을 보류한다.
+브라우저에서 `http://localhost:3000`을 연다. `.env.local`에 `DATABASE_URL` 또는 `POSTGRES_URL`이 있으면 Neon 온라인 저장 모드로 연결된다. 최초 API 요청은 프로토타입 게임 상태, 익명 세션, 대기방, 참가자, 완료 기록 표와 인덱스를 idempotent하게 준비한다. 동일 SQL은 [`db/migrations/0000_prototype.sql`](./db/migrations/0000_prototype.sql)에 기록되어 있다. 현재 JSONB 프로토타입은 명시적 SQL과 Neon driver만 사용하며, Drizzle은 8인 정규화 스키마 단계까지 도입을 보류한다.
 
 ### 검증
 
