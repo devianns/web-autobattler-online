@@ -1,6 +1,6 @@
 import { describe,expect,it } from "vitest";
 import { UNIT_IDS } from "./content";
-import { copiesForStar,poolDelta,reserveShop,type PoolAvailability } from "./pool";
+import { auditPoolBalance,copiesForStar,poolDelta,reserveShop,type PoolAvailability } from "./pool";
 
 const availability=(count:number)=>Object.fromEntries(UNIT_IDS.map((id)=>[id,count])) as PoolAvailability;
 
@@ -21,5 +21,9 @@ describe("shared unit pool",()=>{
     const newShop=reserveShop("new",availability(10),5).shop;
     expect(Object.values(poolDelta(oldShop,newShop)).reduce((sum,value)=>sum+value,0)).toBe(0);
     expect([copiesForStar(1),copiesForStar(2),copiesForStar(3)]).toEqual([1,3,9]);
+  });
+  it("detects missing or duplicated copies in the pool ledger",()=>{
+    expect(auditPoolBalance({initial:29,available:20,reserved:4,owned:5}).valid).toBe(true);
+    expect(auditPoolBalance({initial:29,available:21,reserved:4,owned:5})).toMatchObject({valid:false,difference:-1});
   });
 });

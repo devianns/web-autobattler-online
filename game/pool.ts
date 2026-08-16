@@ -28,3 +28,8 @@ export function poolDelta(returned:ShopSlot[],reserved:ShopSlot[]){
   const before=countShopUnits(returned); const after=countShopUnits(reserved);
   return Object.fromEntries(UNIT_IDS.map((id)=>[id,(before[id]??0)-(after[id]??0)])) as PoolAvailability;
 }
+
+export function auditPoolBalance(input:{initial:number;available:number;reserved:number;owned:number}){
+  const accounted=input.available+input.reserved+input.owned;
+  return {...input,accounted,difference:input.initial-accounted,valid:input.initial===accounted};
+}
