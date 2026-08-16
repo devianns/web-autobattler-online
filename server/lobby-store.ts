@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "./database";
 import type { GameHistoryDetail, GameHistorySummary, RoomDetail, RoomSummary, SessionProfile } from "@/matchmaking/types";
 import { UNIT_POOL_COUNTS } from "@/game/content";
+import { encodeHistoryCursor } from "@/matchmaking/history-cursor";
 
 const poolSeedRows=JSON.stringify(Object.entries(UNIT_POOL_COUNTS).map(([unitBaseId,initialCount])=>({unitBaseId,initialCount})));
 
@@ -92,10 +93,13 @@ export async function leaveRoom(roomId: string, sessionId: string) {
   return true;
 }
 
-export async function listHistory(): Promise<GameHistorySummary[]> {
+export async function listHistory(cursor?:{endedAt:string;id:string}): Promise<{items:GameHistorySummary[];nextCursor:string|null}> {
   await ensureLobbySchema();
-  const rows = await sql`SELECT id::text,room_id::text,room_name,started_at,ended_at,rounds,winner_nickname,player_nicknames,summary FROM completed_game_records ORDER BY ended_at DESC LIMIT 100`;
-  return rows.map((r) => ({ id:r.id,roomId:r.room_id,roomName:r.room_name,startedAt:r.started_at,endedAt:r.ended_at,rounds:r.rounds,winnerNickname:r.winner_nickname,playerNicknames:r.player_nicknames,summary:r.summary })) as GameHistorySummary[];
+  const rows = cursor
+    ? await sql`SELECT id::text,room_id::text,room_name,started_at,ended_at,rounds,winner_nickname,player_nicknames,summary FROM completed_game_records WHERE (ended_at,id)<(${cursor.endedAt}::timestamptz,${cursor.id}::uuid) ORDER BY ended_at DESC,id DESC LIMIT 31`
+    : await sql`SELECT id::text,room_id::text,room_name,started_at,ended_at,rounds,winner_nickname,player_nicknames,summary FROM completed_game_records ORDER BY ended_at DESC,id DESC LIMIT 31`;
+  const page=rows.slice(0,30);const last=page.at(-1);
+  return {items:page.map((r) => ({ id:r.id,roomId:r.room_id,roomName:r.room_name,startedAt:r.started_at,endedAt:r.ended_at,rounds:r.rounds,winnerNickname:r.winner_nickname,playerNicknames:r.player_nicknames,summary:r.summary })) as GameHistorySummary[],nextCursor:rows.length>30&&last?encodeHistoryCursor(new Date(last.ended_at).toISOString(),last.id):null};
 }
 
 export async function historyDetail(id: string): Promise<GameHistoryDetail | null> {
