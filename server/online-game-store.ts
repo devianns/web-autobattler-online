@@ -81,6 +81,47 @@ export async function loadOnlineAction(gameId: string, sessionId: string, action
   return rows[0]?.response as PrototypeGameState | undefined;
 }
 
+export async function rerollOnlineShop(args:{gameId:string;sessionId:string;actionId:string;expectedVersion:number;current:PrototypeGameState}){
+  await ensureOnlineSchema();
+  if(args.current.gold<2)return {status:"INVALID" as const,state:args.current,error:"새로고침에는 2골드가 필요합니다."};
+  for(let attempt=0;attempt<4;attempt+=1){
+    const poolRows=await sql`SELECT unit_base_id,initial_count,available_count,version FROM shared_unit_pools WHERE game_id=${args.gameId}::uuid ORDER BY unit_base_id`;
+    const oldRows=await sql`SELECT slot,unit_base_id,purchased FROM online_shop_reservations WHERE game_id=${args.gameId}::uuid AND session_id=${args.sessionId}::uuid AND round=${args.current.round} ORDER BY slot`;
+    const availability=Object.fromEntries(poolRows.map((row)=>[row.unit_base_id,row.available_count])) as PoolAvailability;
+    for(const row of oldRows)if(!row.purchased)availability[row.unit_base_id as keyof PoolAvailability]+=1;
+    const rolled=reserveShop(`${args.current.seed}:shop:${args.current.round}:${args.current.version+1}`,availability);
+    if(!rolled.complete)return {status:"INVALID" as const,state:args.current,error:"공유 풀 재고가 부족합니다."};
+    const next=structuredClone(args.current);next.gold-=2;next.version+=1;next.shop=rolled.shop;
+    const poolPayload=JSON.stringify(poolRows.map((row)=>({unit_base_id:row.unit_base_id,available_count:Math.min(row.initial_count,rolled.remaining[row.unit_base_id as keyof PoolAvailability]),expected_version:row.version})));
+    const slotsPayload=JSON.stringify(rolled.shop);const statePayload=JSON.stringify(next);
+    const result=await sql.transaction([
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${args.gameId},0))`,
+      sql`WITH duplicate AS (
+          SELECT response FROM online_game_actions WHERE game_id=${args.gameId}::uuid AND session_id=${args.sessionId}::uuid AND action_id=${args.actionId}::uuid
+        ), pool_values AS (
+          SELECT * FROM jsonb_to_recordset(${poolPayload}::jsonb) item(unit_base_id text,available_count integer,expected_version integer)
+        ), valid AS (
+          SELECT NOT EXISTS (SELECT 1 FROM pool_values v LEFT JOIN shared_unit_pools p ON p.game_id=${args.gameId}::uuid AND p.unit_base_id=v.unit_base_id WHERE p.version IS DISTINCT FROM v.expected_version) ok
+          WHERE NOT EXISTS (SELECT 1 FROM duplicate) AND EXISTS (SELECT 1 FROM online_game_players p WHERE p.game_id=${args.gameId}::uuid AND p.session_id=${args.sessionId}::uuid AND p.state_version=${args.expectedVersion})
+        ), pools AS (
+          UPDATE shared_unit_pools p SET available_count=v.available_count,version=p.version+1 FROM pool_values v,valid x WHERE x.ok AND p.game_id=${args.gameId}::uuid AND p.unit_base_id=v.unit_base_id RETURNING p.unit_base_id
+        ), updated AS (
+          UPDATE online_game_players SET state=${statePayload}::jsonb,state_version=${next.version} WHERE game_id=${args.gameId}::uuid AND session_id=${args.sessionId}::uuid AND state_version=${args.expectedVersion} AND (SELECT count(*) FROM pools)=(SELECT count(*) FROM pool_values) RETURNING state
+        ), deleted AS (
+          DELETE FROM online_shop_reservations r USING updated u WHERE r.game_id=${args.gameId}::uuid AND r.session_id=${args.sessionId}::uuid AND r.round=${args.current.round} RETURNING r.slot
+        ), inserted AS (
+          INSERT INTO online_shop_reservations (game_id,session_id,round,slot,unit_base_id) SELECT ${args.gameId}::uuid,${args.sessionId}::uuid,${args.current.round},(slot->>'slot')::integer,slot->>'baseId' FROM jsonb_array_elements(${slotsPayload}::jsonb) slot,updated WHERE (SELECT count(*) FROM deleted)>=0 RETURNING slot
+        ), recorded AS (
+          INSERT INTO online_game_actions (game_id,session_id,action_id,response) SELECT ${args.gameId}::uuid,${args.sessionId}::uuid,${args.actionId}::uuid,state FROM updated WHERE (SELECT count(*) FROM inserted)=5 ON CONFLICT (game_id,session_id,action_id) DO NOTHING RETURNING response
+        ) SELECT response,'APPLIED' status FROM recorded UNION ALL SELECT response,'DUPLICATE' status FROM duplicate LIMIT 1`
+    ]);
+    if(result[1][0])return {status:result[1][0].status as "APPLIED"|"DUPLICATE",state:result[1][0].response as PrototypeGameState,error:null};
+    const latest=await loadOnlineGame(args.gameId,args.sessionId);
+    if(!latest||latest.version!==args.expectedVersion)return {status:"CONFLICT" as const,state:latest,error:null};
+  }
+  return {status:"CONFLICT" as const,state:await loadOnlineGame(args.gameId,args.sessionId),error:null};
+}
+
 export async function saveOnlineCommand(args: { gameId: string; sessionId: string; actionId: string; expectedVersion: number; state: PrototypeGameState; previousState: PrototypeGameState; command: GameCommand }) {
   await ensureOnlineSchema();
   const buySlot=args.command.type==="BUY"?args.command.slot:-1;
