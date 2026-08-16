@@ -92,3 +92,13 @@
 .game-viewport-canvas .shop-title{position:static;z-index:auto;background:transparent}.game-viewport-canvas .shop-card{height:82px}.game-viewport-canvas .primary-actions{grid-column:3;grid-row:1/3;display:grid;width:auto;order:initial}.game-viewport-canvas .combat-button{width:auto}
 .game-viewport-canvas .floating-ledger{right:22px;top:84px;padding:9px 13px;font-size:inherit}
 .game-viewport-canvas .history-drawer{width:600px;height:900px;border-left:1px solid var(--line)}
+
+/* Shared asynchronous feedback for every user-triggered server operation. */
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.loading-indicator{display:inline-flex;align-items:center;justify-content:center;vertical-align:-.15em;flex:none}
+.loading-spinner{width:1em;height:1em;display:inline-block;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:loading-spin .72s linear infinite}
+@keyframes loading-spin{to{transform:rotate(360deg)}}
+button:disabled{cursor:not-allowed}.portal-loading{display:flex;align-items:center;justify-content:center;gap:12px;color:var(--cyan);letter-spacing:.08em}.portal-loading .loading-spinner{width:24px;height:24px}
+.drawer-loading{min-height:230px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;color:var(--muted)}.drawer-loading .loading-spinner{width:24px;height:24px;color:var(--cyan)}
+.game-shell{position:relative}.game-command-loading{position:absolute;z-index:24;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;background:#02090c70;backdrop-filter:blur(1px);color:#dffefa;pointer-events:all}.game-command-loading .loading-spinner{width:25px;height:25px;color:var(--cyan)}
+.history-list>button:disabled{opacity:.55}.room-card:disabled{transform:none;opacity:.7}.shop-card em .loading-indicator{margin-right:5px}
