@@ -412,7 +412,9 @@ interest = min(5, floor(currentGold / 10))
 ### 애플리케이션
 
 - **Next.js App Router + TypeScript**: UI와 Vercel Route Handlers를 한 저장소에서 관리
-- **React**: 상점, 보드, 전투 재생 UI
+- **React**: 로비, 상점, 벤치, HUD, 툴팁과 결과 UI
+- **React Three Fiber + Three.js**: 2.5D 보드, 3D 유닛, 애니메이션과 전투 이펙트 렌더링
+- **Drei**: 카메라, GLTF 로딩 등 검증된 React Three Fiber 보조 기능
 - **Tailwind CSS**: 초기 UI 스타일링
 - **TanStack Query**: 폴링, 캐시, 재시도, mutation 이후 상태 병합
 - **Zod**: API 입력과 환경 변수 런타임 검증
@@ -435,6 +437,12 @@ interest = min(5, floor(currentGold / 10))
 - 구조화 JSON 로그에 `requestId`, `gameId`, `playerId`, `actionId`, `phaseVersion` 포함
 
 Redis, 메시지 큐, 별도 WebSocket 서버는 초기 필수 스택에 포함하지 않는다. 실제 부하 측정 후 매칭 또는 캐시 병목이 확인될 때만 추가한다.
+
+### 2.5D 렌더링 결정
+
+게임 화면은 롤토체스처럼 고정된 대각선 시점에서 3D 캐릭터가 격자 보드 위를 이동하는 2.5D 방식으로 구현한다. 판정은 순수 TypeScript 8×8 격자 엔진이 담당하고, React Three Fiber/Three.js는 서버가 확정한 전투 이벤트만 재생한다. 로비, 상점, 벤치, HUD와 결과창은 HTML/React로 유지한다.
+
+좌표계, 이벤트 재생, GLB 에셋 계약, 애니메이션 상태 머신, 성능 예산, GPU 리소스 생명주기와 구현 완료 기준은 [`docs/2_5D_RENDERING_ARCHITECTURE.md`](./docs/2_5D_RENDERING_ARCHITECTURE.md)를 따른다.
 
 ## 12. 서버리스 구현 원칙
 
