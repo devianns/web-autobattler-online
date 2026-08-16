@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { UNIT_DEFINITIONS } from "@/game/content";
 import { applyCommand, createGame, type GameCommand } from "@/game/state";
 import type { CombatResult, CombatUnit, OwnedUnit, PrototypeGameState } from "@/game/types";
-import LoadingSpinner from "./loading-spinner";
 
 const CELLS = Array.from({ length: 64 }, (_, index) => ({ x: index % 8, y: Math.floor(index / 8) }));
 interface OnlinePlayer {sessionId:string;nickname:string;seat:number;hp:number;wins:number;losses:number;eliminated:boolean}
@@ -54,7 +53,6 @@ export default function GameClient({ gameKey, roomName }: { gameKey?: string; ro
   const [speed, setSpeed] = useState(2);
   const [connection, setConnection] = useState<"LOADING" | "ONLINE" | "OFFLINE">("LOADING");
   const [busy, setBusy] = useState(true);
-  const [pendingCommand,setPendingCommand]=useState<GameCommand["type"]|null>(null);
   const [onlineMeta,setOnlineMeta]=useState<OnlineMeta|null>(null);
   const [serverOffsetMs,setServerOffsetMs]=useState(0);const [clockNow,setClockNow]=useState(()=>Date.now());
 
@@ -66,10 +64,10 @@ export default function GameClient({ gameKey, roomName }: { gameKey?: string; ro
     if (result.error) { setMessage(result.error); return; }
     setGame(result.state);
     if (connection === "OFFLINE") { setMessage("로컬 모드에서 진행 중입니다."); return; }
-    setBusy(true);setPendingCommand(command.type);
+    setBusy(true);
     try { const body = await postCommand(snapshot, command, endpoint); if (body.state) setGame(body.state); setConnection("ONLINE"); }
     catch { setConnection("OFFLINE"); if (gameKey) { setGame(snapshot); setMessage("명령을 저장하지 못해 서버 상태로 되돌렸습니다."); } else setMessage("DB 연결 없이 로컬 모드로 계속합니다."); }
-    finally { setBusy(false);setPendingCommand(null); }
+    finally { setBusy(false); }
     if (command.type !== "FINISH_COMBAT") setMessage("명령이 적용되었습니다.");
     if (["MOVE", "BENCH", "SELL"].includes(command.type)) setSelectedUid(null);
   };
@@ -117,7 +115,6 @@ export default function GameClient({ gameKey, roomName }: { gameKey?: string; ro
   const remainingSeconds=onlineMeta?Math.max(0,Math.ceil((new Date(onlineMeta.phaseEndsAt).getTime()-(clockNow+serverOffsetMs))/1000)):null;
 
   return <main className="game-shell">
-    {busy&&<div className="game-command-loading"><LoadingSpinner label={pendingCommand?"게임 명령 저장 중":"게임 데이터 불러오는 중"}/><strong>{pendingCommand?"서버에 명령 저장 중":"게임 데이터 동기화 중"}</strong></div>}
     <header className="topbar">
       <div className="brand"><span className="brand-mark">WA</span><div><strong>WEB AUTOBATTLER</strong><small>{roomName??"SERVERLESS PROTOTYPE"}</small></div></div>
       <div className="round"><small>ROUND</small><strong>{game.round}</strong><span>{phaseLabel}{remainingSeconds!==null&&game.phase!=="GAME_OVER"?` · ${remainingSeconds}초`:""}</span></div>
@@ -133,12 +130,12 @@ export default function GameClient({ gameKey, roomName }: { gameKey?: string; ro
         <div className="message-line">{game.hp<=0&&game.phase!=="GAME_OVER"?"탈락했습니다 · 남은 참가자의 경기를 관전 중입니다.":game.lastResult ?? message}</div>
       </div>
 
-      <aside className="side-panel inspector"><h2>유닛 정보</h2>{selected ? <><div className="portrait"><UnitShape unit={selected} selected /></div><h3>{UNIT_DEFINITIONS[selected.baseId].name} {"★".repeat(selected.starLevel)}</h3><p>{UNIT_DEFINITIONS[selected.baseId].role}</p><dl><div><dt>HP</dt><dd>{UNIT_DEFINITIONS[selected.baseId].stats.maxHp}</dd></div><div><dt>공격력</dt><dd>{UNIT_DEFINITIONS[selected.baseId].stats.attackDamage}</dd></div><div><dt>사거리</dt><dd>{UNIT_DEFINITIONS[selected.baseId].stats.range}</dd></div></dl><strong className="ability">{UNIT_DEFINITIONS[selected.baseId].abilityName}</strong><small>{UNIT_DEFINITIONS[selected.baseId].abilityDescription}</small><div className="inspect-actions"><button disabled={busy} onClick={() => dispatch({ type: "BENCH", uid: selected.uid })}>{pendingCommand==="BENCH"?<LoadingSpinner label="벤치 이동 저장 중"/>:"벤치로"}</button><button disabled={busy} className="danger" onClick={() => dispatch({ type: "SELL", uid: selected.uid })}>{pendingCommand==="SELL"?<LoadingSpinner label="판매 저장 중"/>:"판매"}</button></div></> : <p className="empty-copy">유닛을 선택하면 능력치와 스킬을 확인할 수 있습니다.</p>}</aside>
+      <aside className="side-panel inspector"><h2>유닛 정보</h2>{selected ? <><div className="portrait"><UnitShape unit={selected} selected /></div><h3>{UNIT_DEFINITIONS[selected.baseId].name} {"★".repeat(selected.starLevel)}</h3><p>{UNIT_DEFINITIONS[selected.baseId].role}</p><dl><div><dt>HP</dt><dd>{UNIT_DEFINITIONS[selected.baseId].stats.maxHp}</dd></div><div><dt>공격력</dt><dd>{UNIT_DEFINITIONS[selected.baseId].stats.attackDamage}</dd></div><div><dt>사거리</dt><dd>{UNIT_DEFINITIONS[selected.baseId].stats.range}</dd></div></dl><strong className="ability">{UNIT_DEFINITIONS[selected.baseId].abilityName}</strong><small>{UNIT_DEFINITIONS[selected.baseId].abilityDescription}</small><div className="inspect-actions"><button onClick={() => dispatch({ type: "BENCH", uid: selected.uid })}>벤치로</button><button className="danger" onClick={() => dispatch({ type: "SELL", uid: selected.uid })}>판매</button></div></> : <p className="empty-copy">유닛을 선택하면 능력치와 스킬을 확인할 수 있습니다.</p>}</aside>
     </section>
 
     <section className="management">
       <div className="bench-row"><span className="section-label">BENCH</span>{bench.map((unit, slot) => <button key={slot} className={`bench-slot ${unit?.uid === selectedUid ? "selected" : ""}`} onClick={() => unit && setSelectedUid(unit.uid)}>{unit ? <UnitShape unit={unit} selected={unit.uid === selectedUid} /> : <span>{slot + 1}</span>}</button>)}</div>
-      <div className="shop-row"><div className="shop-title"><span>상점</span><button disabled={busy} onClick={() => dispatch({ type: "REROLL" })}>{pendingCommand==="REROLL"?<LoadingSpinner label="상점 갱신 중"/>:"↻ 2"}</button></div>{game.shop.map((item) => { const def = UNIT_DEFINITIONS[item.baseId]; return <button key={item.slot} disabled={busy || item.purchased || game.phase !== "SHOP"} className="shop-card" onClick={() => dispatch({ type: "BUY", slot: item.slot })}><UnitShape unit={{ baseId: item.baseId, starLevel: 1 }} /><div><strong>{def.name}</strong><small>{def.role}</small></div><b>◆ {def.cost}</b>{pendingCommand==="BUY"&&!item.purchased?<em><LoadingSpinner label="구매 저장 중"/> 저장 중</em>:item.purchased&&<em>구매 완료</em>}</button>; })}</div>
+      <div className="shop-row"><div className="shop-title"><span>상점</span><button onClick={() => dispatch({ type: "REROLL" })}>↻ 2</button></div>{game.shop.map((item) => { const def = UNIT_DEFINITIONS[item.baseId]; return <button key={item.slot} disabled={item.purchased || game.phase !== "SHOP"} className="shop-card" onClick={() => dispatch({ type: "BUY", slot: item.slot })}><UnitShape unit={{ baseId: item.baseId, starLevel: 1 }} /><div><strong>{def.name}</strong><small>{def.role}</small></div><b>◆ {def.cost}</b>{item.purchased && <em>구매 완료</em>}</button>; })}</div>
       <div className="primary-actions">{game.phase === "SHOP" && (gameKey?<button className="combat-button" disabled>서버 전투 대기 <span>◷</span></button>:<button className="combat-button" onClick={() => dispatch({ type: "START_COMBAT" })}>전투 시작 <span>▶</span></button>)}{game.phase === "RESULT" && !gameKey&&<button className="combat-button" onClick={() => dispatch({ type: "NEXT_ROUND" })}>다음 라운드 <span>→</span></button>}{game.phase === "GAME_OVER" && (gameKey?<button className="combat-button" disabled>결과 확정 완료 · 로비 이동 중</button>:<button className="combat-button" onClick={() => dispatch({ type: "RESET" })}>{game.hp > 0 ? "승리 · 다시 하기" : "패배 · 다시 하기"}</button>)}</div>
     </section>
   </main>;
