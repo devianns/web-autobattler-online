@@ -6,6 +6,7 @@ import { UNIT_POOL_COUNTS } from "@/game/content";
 const poolSeedRows=JSON.stringify(Object.entries(UNIT_POOL_COUNTS).map(([unitBaseId,initialCount])=>({unitBaseId,initialCount})));
 
 let schemaReady: Promise<void> | null = null;
+let lastStaleRoomCleanup=0;
 export function ensureLobbySchema() {
   schemaReady ??= (async () => {
     await sql`CREATE TABLE IF NOT EXISTS anonymous_sessions (id uuid PRIMARY KEY, nickname text, created_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(), CHECK (nickname IS NULL OR char_length(nickname) BETWEEN 1 AND 16))`;
@@ -41,6 +42,7 @@ export async function setNickname(sessionId: string, nickname: string) {
 
 export async function listRooms(): Promise<RoomSummary[]> {
   await ensureLobbySchema();
+  if(Date.now()-lastStaleRoomCleanup>300_000){lastStaleRoomCleanup=Date.now();await sql`DELETE FROM matchmaking_rooms WHERE status='WAITING' AND created_at<now()-interval '6 hours'`}
   const rows = await sql`SELECT r.id::text, r.name, r.status, r.max_players, r.created_at, r.started_at, s.nickname host_nickname, count(p.session_id)::int player_count FROM matchmaking_rooms r JOIN anonymous_sessions s ON s.id=r.host_session_id LEFT JOIN matchmaking_room_players p ON p.room_id=r.id WHERE r.status='WAITING' GROUP BY r.id,s.nickname ORDER BY r.created_at DESC LIMIT 50`;
   return rows.map((row) => ({ id: row.id, name: row.name, status: row.status, maxPlayers: row.max_players, createdAt: row.created_at, startedAt: row.started_at, hostNickname: row.host_nickname, playerCount: row.player_count })) as RoomSummary[];
 }

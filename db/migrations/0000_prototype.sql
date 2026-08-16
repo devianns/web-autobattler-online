@@ -136,3 +136,12 @@ CREATE TABLE IF NOT EXISTS online_combat_jobs (
 );
 CREATE INDEX IF NOT EXISTS matchmaking_rooms_status_created_idx ON matchmaking_rooms(status,created_at DESC);
 CREATE INDEX IF NOT EXISTS completed_game_records_ended_idx ON completed_game_records(ended_at DESC);
+
+CREATE TABLE IF NOT EXISTS request_rate_limits (
+  scope_key text NOT NULL,
+  window_bucket bigint NOT NULL,
+  request_count integer NOT NULL CHECK (request_count > 0),
+  expires_at timestamptz NOT NULL,
+  PRIMARY KEY (scope_key, window_bucket)
+);
+CREATE INDEX IF NOT EXISTS request_rate_limits_expiry_idx ON request_rate_limits(expires_at);

@@ -3,6 +3,7 @@ import { applyCommand, type GameCommand } from "@/game/state";
 import { getSessionId } from "@/server/session";
 import { loadOnlineAction, loadOnlineGame, loadOnlineGameView, rerollOnlineShop, saveOnlineCommand } from "@/server/online-game-store";
 import { reconcileOnlineGame } from "@/server/online-reconcile";
+import { consumeRateLimit } from "@/server/rate-limit";
 
 export const runtime="nodejs"; export const dynamic="force-dynamic";
 type Context={params:Promise<{gameId:string}>};
@@ -26,6 +27,7 @@ export async function POST(request:Request,{params}:Context){
     if(view.game.phase!=="SHOP"||new Date(view.game.phaseEndsAt).getTime()<=Date.now())return json({error:"상점 단계가 종료되었습니다.",state:view.state},409);
     const duplicate=await loadOnlineAction(gameId.data,sessionId,parsed.data.actionId);
     if(duplicate)return json({state:duplicate,actionStatus:"DUPLICATE",serverNow:new Date().toISOString()});
+    if(!(await consumeRateLimit({sessionId,scope:"game-command",limit:120,windowSeconds:60})).allowed)return json({error:"게임 명령 요청이 너무 많습니다.",state:view.state},429);
     const current=await loadOnlineGame(gameId.data,sessionId);if(!current)return json({error:"게임 참가자가 아닙니다."},403);
     if(current.version!==parsed.data.expectedVersion)return json({error:"상태가 갱신되었습니다.",state:current},409);
     if(parsed.data.command.type==="REROLL"){
