@@ -3,6 +3,7 @@ import { simulateMultiplayerRound, type MultiplayerSnapshot } from "@/game/multi
 import { hashString } from "@/game/rng";
 import type { PrototypeGameState } from "@/game/types";
 import { applyCommand } from "@/game/state";
+import { copiesForStar, reserveShop, type PoolAvailability } from "@/game/pool";
 import { sql } from "./database";
 import { ensureOnlineSchema, loadOnlineGame } from "./online-game-store";
 
@@ -121,21 +122,43 @@ export async function reconcileResult(gameId:string){
     return finished[0]?"GAME_OVER" as const:"NOT_DUE" as const;
   }
   const transitionOwner=crypto.randomUUID();
+  const poolRows=await sql`SELECT unit_base_id,initial_count,available_count,version FROM shared_unit_pools WHERE game_id=${gameId}::uuid ORDER BY unit_base_id`;
+  const oldReservations=await sql`SELECT unit_base_id,purchased FROM online_shop_reservations WHERE game_id=${gameId}::uuid AND round=${game.round}`;
+  const availability=Object.fromEntries(poolRows.map((row)=>[row.unit_base_id,row.available_count])) as PoolAvailability;
+  for(const reservation of oldReservations)if(!reservation.purchased)availability[reservation.unit_base_id as keyof PoolAvailability]+=1;
+  const eliminatedStates=rows.filter((row)=>row.hp<=0).map((row)=>{
+    const state=structuredClone(row.state as PrototypeGameState);
+    for(const unit of state.units)availability[unit.baseId]+=copiesForStar(unit.starLevel);
+    state.units=[];state.shop=[];state.version+=1;
+    return {sessionId:row.session_id,state};
+  });
   const nextStates=survivors.map((row)=>{
     const state={...(row.state as PrototypeGameState),phase:"RESULT" as const,round:game.round,hp:row.hp,gold:row.gold,level:row.level,wins:row.wins,losses:row.losses};
     const next=applyCommand(state,{type:"NEXT_ROUND"});
     if(next.error)throw new Error(next.error);
+    const rolled=reserveShop(`${next.state.seed}:shop:${next.state.round}:${next.state.version}`,availability);
+    if(!rolled.complete)throw new Error("공유 풀 재고가 부족해 다음 상점을 만들 수 없습니다.");
+    next.state.shop=rolled.shop; Object.assign(availability,rolled.remaining);
     return {sessionId:row.session_id,state:next.state};
   });
-  const payload=JSON.stringify(nextStates);
-  const advanced=await sql`WITH claimed AS (
+  const payload=JSON.stringify([...nextStates,...eliminatedStates]); const poolPayload=JSON.stringify(poolRows.map((row)=>({unit_base_id:row.unit_base_id,available_count:Math.min(row.initial_count,availability[row.unit_base_id as keyof PoolAvailability]),expected_version:row.version})));
+  const reservationsPayload=JSON.stringify(nextStates.flatMap((entry)=>entry.state.shop.map((slot)=>({session_id:entry.sessionId,round:entry.state.round,slot:slot.slot,unit_base_id:slot.baseId}))));
+  const advanced=await sql`WITH pool_values AS (
+      SELECT * FROM jsonb_to_recordset(${poolPayload}::jsonb) item(unit_base_id text,available_count integer,expected_version integer)
+    ), claimed AS (
       UPDATE online_games SET phase='SHOP',round=round+1,phase_version=phase_version+1,phase_ends_at=now()+interval '30 seconds',transition_owner=${transitionOwner}::uuid
-      WHERE id=${gameId}::uuid AND phase='RESULT' AND phase_version=${game.phase_version} AND phase_ends_at<=now() RETURNING id,round
+      WHERE id=${gameId}::uuid AND phase='RESULT' AND phase_version=${game.phase_version} AND phase_ends_at<=now()
+        AND NOT EXISTS (SELECT 1 FROM pool_values v LEFT JOIN shared_unit_pools p ON p.game_id=${gameId}::uuid AND p.unit_base_id=v.unit_base_id WHERE p.version IS DISTINCT FROM v.expected_version)
+      RETURNING id,round
+    ), pools AS (
+      UPDATE shared_unit_pools p SET available_count=v.available_count,version=p.version+1 FROM pool_values v,claimed c WHERE p.game_id=c.id AND p.unit_base_id=v.unit_base_id RETURNING p.unit_base_id
     ), states AS (
       SELECT entry->>'sessionId' session_id,entry->'state' state FROM jsonb_array_elements(${payload}::jsonb) entry
     ), updated AS (
       UPDATE online_game_players p SET state=s.state,state_version=(s.state->>'version')::integer,hp=(s.state->>'hp')::integer,gold=(s.state->>'gold')::integer,level=(s.state->>'level')::integer,wins=(s.state->>'wins')::integer,losses=(s.state->>'losses')::integer
-      FROM states s,claimed c WHERE p.game_id=c.id AND p.session_id=(s.session_id)::uuid RETURNING p.session_id
-    ) SELECT (SELECT count(*) FROM claimed)::integer claimed_count,(SELECT count(*) FROM updated)::integer player_count`;
+      FROM states s,claimed c WHERE p.game_id=c.id AND p.session_id=(s.session_id)::uuid AND (SELECT count(*) FROM pools)=(SELECT count(*) FROM pool_values) RETURNING p.session_id
+    ), reservations AS (
+      INSERT INTO online_shop_reservations (game_id,session_id,round,slot,unit_base_id) SELECT ${gameId}::uuid,(item->>'session_id')::uuid,(item->>'round')::integer,(item->>'slot')::integer,item->>'unit_base_id' FROM jsonb_array_elements(${reservationsPayload}::jsonb) item,claimed c WHERE EXISTS (SELECT 1 FROM updated) RETURNING slot
+    ) SELECT (SELECT count(*) FROM claimed)::integer claimed_count,(SELECT count(*) FROM updated)::integer player_count,(SELECT count(*) FROM reservations)::integer reservation_count`;
   return advanced[0]?.claimed_count>0?"SHOP_READY" as const:"NOT_DUE" as const;
 }
