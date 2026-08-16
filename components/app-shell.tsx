@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import GameClient from "./game-client";
+import GameViewport from "./game-viewport";
 import type { GameHistoryDetail, GameHistorySummary, RoomDetail, RoomSummary, SessionProfile } from "@/matchmaking/types";
 
 const ROOMS_CACHE="wa_rooms_cache_v1"; const HISTORY_CACHE="wa_history_cache_v1";
@@ -33,7 +34,7 @@ export default function AppShell(){
   async function loadMoreHistory(){if(!historyCursor)return;try{const body=await json<{history:GameHistorySummary[];nextCursor:string|null}>(`/api/history?cursor=${encodeURIComponent(historyCursor)}`);setHistory((current)=>[...current,...body.history.filter((item)=>!current.some((old)=>old.id===item.id))]);setHistoryCursor(body.nextCursor)}catch{setError("이전 게임 기록을 불러오지 못했습니다.")}}
 
   if(!profile||!profile.nickname)return <div className="portal-bg"><form className="nickname-card" onSubmit={saveNickname}><span className="brand-mark">WA</span><small>ANONYMOUS SESSION</small><h1>전장 이름을 정하세요</h1><p>로그인은 없습니다. 이 브라우저 세션이 유지되는 동안 닉네임과 게임 기록이 연결됩니다. 닉네임 중복은 허용됩니다.</p><input autoFocus maxLength={16} value={nickname} onChange={(e)=>setNickname(e.target.value)} placeholder="닉네임 1~16자"/><button disabled={busy||!nickname.trim()}>세션 시작</button>{error&&<em>{error}</em>}</form></div>;
-  if(room?.status==="STARTED")return <div className="game-mode-wrapper"><GameClient gameKey={room.gameId??room.id} roomName={room.name}/><button className="floating-ledger" onClick={()=>{setHistoryOpen(true);void refreshLobby()}}>☰ 게임 기록</button>{historyOpen&&<GameLedgerOverlay history={history} detail={historyDetail} nextCursor={historyCursor} onMore={()=>void loadMoreHistory()} onOpen={(id)=>void openHistory(id)} onBack={()=>setHistoryDetail(null)} onClose={()=>{setHistoryOpen(false);setHistoryDetail(null)}}/>}</div>;
+  if(room?.status==="STARTED")return <GameViewport><div className="game-mode-wrapper"><GameClient gameKey={room.gameId??room.id} roomName={room.name}/><button className="floating-ledger" onClick={()=>{setHistoryOpen(true);void refreshLobby()}}>☰ 게임 기록</button>{historyOpen&&<GameLedgerOverlay history={history} detail={historyDetail} nextCursor={historyCursor} onMore={()=>void loadMoreHistory()} onOpen={(id)=>void openHistory(id)} onBack={()=>setHistoryDetail(null)} onClose={()=>{setHistoryOpen(false);setHistoryDetail(null)}}/>}</div></GameViewport>;
 
   return <main className="portal-bg lobby-shell">
     <header className="portal-header"><div className="brand"><span className="brand-mark">WA</span><div><strong>WEB AUTOBATTLER</strong><small>ONLINE LOBBY</small></div></div><nav><button onClick={()=>{setHistoryOpen(true);void refreshLobby()}}>전체 게임 기록 <b>{history.length}</b></button><span className="session-badge"><i/> {profile.nickname}<small>{profile.id.slice(0,8)}</small></span></nav></header>
