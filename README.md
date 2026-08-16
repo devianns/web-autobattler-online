@@ -2,7 +2,42 @@
 
 Vercel과 Neon PostgreSQL만으로 운영하는 8인 온라인 웹 오토배틀러의 사전 설계 문서입니다. 이 문서는 구현을 시작하기 전에 게임 규칙, 온라인 동기화 모델, 서버리스 제약, 데이터 구조, API, 전투 엔진, 보안, 배포 및 검증 기준을 확정하기 위한 기준점입니다.
 
-초기 아이디어와 수치 초안은 [`game_example.md`](./game_example.md)에 있습니다. 해당 파일은 일부 한글 인코딩이 깨져 있으므로, 실제 구현 판단은 이 README를 우선합니다.
+초기 아이디어와 수치 초안은 이 README의 규칙과 구현 기준으로 통합되었습니다.
+
+## 현재 구현 상태
+
+도형 에셋만 사용하는 첫 플레이 가능 수직 슬라이스가 구현되어 있습니다.
+
+- 8×8 도형 기반 2.5D 보드와 아군 4개 행 배치
+- 상점 5칸, 벤치 9칸, 구매·판매·새로고침·보드 이동
+- 동일 1성 유닛 3개 자동 합성
+- 전사, 궁수, 기사, 마도사, 암살자 5종
+- 결정론적 100ms tick 전투 엔진
+- 이동, 타깃 선택, 공격 속도, 방어력, 마나, 보호막, 광역 스킬과 사망
+- seed, 전체 전투 이벤트, 최종 상태와 checksum 생성
+- 이벤트 시간 기반 전투 재생과 1/2/4배속
+- 라운드 수입, 승패, HP 피해와 게임 종료
+- Neon JSONB 상태 저장, HttpOnly 게스트 세션, `actionId` 멱등성, version 충돌 방지
+- DB 연결 실패 시 현재 탭에서 계속 플레이할 수 있는 로컬 fallback
+
+현재 온라인 범위는 **게스트 1명 대 훈련 봇의 서버 권위형 프로토타입**이다. 전투 엔진과 Neon 명령 장부를 먼저 검증하기 위한 단계이며, 8인 매칭·공유 유닛 풀·플레이어 간 pairing과 요청 기반 전체 게임 reconcile은 다음 온라인 확장 단계에서 구현한다.
+
+### 실행
+
+```bash
+npm install
+npm run dev
+```
+
+브라우저에서 `http://localhost:3000`을 연다. `.env.local`에 `DATABASE_URL` 또는 `POSTGRES_URL`이 있으면 Neon 온라인 저장 모드로 연결된다. 최초 API 요청은 `prototype_game_states`, `prototype_game_actions`와 인덱스를 idempotent하게 준비한다. 동일 SQL은 [`db/migrations/0000_prototype.sql`](./db/migrations/0000_prototype.sql)에 기록되어 있다. 현재 JSONB 프로토타입은 명시적 SQL과 Neon driver만 사용하며, Drizzle은 8인 정규화 스키마 단계까지 도입을 보류한다.
+
+### 검증
+
+```bash
+npm test
+npm run lint
+npm run build
+```
 
 ## 1. 목표와 전제
 
